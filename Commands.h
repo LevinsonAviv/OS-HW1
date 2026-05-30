@@ -109,7 +109,16 @@ public:
 };
 
 class USBInfoCommand : public Command {
-    // **BONUS: 10 Points**
+private:
+    struct USBEntry {
+        int devnum;
+        std::string vendorID;
+        std::string productID;
+        std::string manufacturer;
+        std::string productName;
+        std::string maxPower;
+    };
+
 public:
     USBInfoCommand(const char *cmd_line);
 

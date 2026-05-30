@@ -12,6 +12,7 @@
 #include <time.h>
 #include <ftw.h>
 #include <sys/syscall.h>
+#include <algorithm>
 
 using namespace std;
 
@@ -293,7 +294,7 @@ void ForegroundCommand::execute() {
             return;
         }
         SmallShell::getInstance().setForegroundPid(-1);
-    } catch(const exception& e){
+    }catch(const exception& e){
         cerr << "smash error: fg: invalid arguments" << endl;
         return;
     }
@@ -949,38 +950,57 @@ void USBInfoCommand::execute(){
         return;
     }
     char buff[4096];
-    int bytesRead, devnum = 0;
+    int bytesRead;
+    vector<USBEntry> USBEntries;
     while((bytesRead = syscall(SYS_getdents64, fd, buff, 4096)) > 0){
         int bytePos = 0;
         while(bytePos < bytesRead){
-            linux_dirent64 *dirent = (linux_dirent64 *) (buff + bytePos);
-            string dirName = dirent->d_name;
-            bytePos += dirent->d_reclen;
-            if(dirName == "." || dirName == ".."){
+            try{
+                linux_dirent64 *dirent = (linux_dirent64 *) (buff + bytePos);
+                string dirName = dirent->d_name;
+                bytePos += dirent->d_reclen;
+                if(dirName == "." || dirName == ".."){
+                    continue;
+                }
+                string devnumSPath = usbDirPath + dirName + "/devnum";
+                string devnumS = _rtrim(_readFileToString(devnumSPath, false));
+                if(devnumS.empty()){
+                    continue;
+                }
+
+                int devnum = stoi(devnumS); // try
+                string vendorIDPath = usbDirPath + dirName + "/idVendor";
+                string productIDPath = usbDirPath + dirName + "/idProduct";
+                string manufacturerPath = usbDirPath + dirName + "/manufacturer";
+                string productNamePath = usbDirPath + dirName + "/product";
+                string maxPowerPath = usbDirPath + dirName + "/bMaxPower";
+
+                string vendorID = _rtrim(_readFileToString(vendorIDPath, false));
+                string productID = _rtrim(_readFileToString(productIDPath, false));
+                string manufacturer = _rtrim(_readFileToString(manufacturerPath, false));
+                string productName = _rtrim(_readFileToString(productNamePath, false)); // should be this or the file name
+                string maxPower = _rtrim(_readFileToString(maxPowerPath, false));
+
+                if(vendorID.empty()){
+                    vendorID = "N/A";
+                }
+                if(productID.empty()){
+                    productID = "N/A";
+                }
+                if(manufacturer.empty()){
+                    manufacturer = "N/A";
+                }
+                if(productName.empty()){
+                    productName = "N/A";
+                }
+                if(maxPower.empty()){
+                    maxPower = "N/AmA";
+                }
+
+                USBEntries.push_back(USBEntry{devnum, vendorID, productID, manufacturer, productName, maxPower});
+            }catch(const exception& e){
                 continue;
             }
-            devnum++;
-            string vendorPath = usbDirPath + dirName + "/idVendor";
-            string productPath = usbDirPath + dirName + "/idProduct";
-            string manufacturerPath = usbDirPath + dirName + "/manufacturer";
-            string maxPowerPath = usbDirPath + dirName + "/bMaxPower";
-            string vendor = _rtrim(_readFileToString(vendorPath, false));
-            string product = _rtrim(_readFileToString(productPath, false));
-            string manufacturer = _rtrim(_readFileToString(manufacturerPath, false));
-            string maxPower = _rtrim(_readFileToString(maxPowerPath, false));
-            if(vendor.empty()){
-                vendor = "N/A";
-            }
-            if(product.empty()){
-                product = "N/A";
-            }
-            if(manufacturer.empty()){
-                manufacturer = "N/A";
-            }
-            if(maxPower.empty()){
-                maxPower = "N/AmA";
-            }
-            cout << "Device " << devnum << ": ID " << vendor << ":" << product << " " << manufacturer << " " << dirName << " MaxPower: " << maxPower << endl;  
         }
     }
     if(bytesRead == -1){
@@ -992,7 +1012,15 @@ void USBInfoCommand::execute(){
         perror("smash error: close failed");
         return;
     }
-    if(devnum == 0){
+    if(USBEntries.size() == 0){
         cerr << "smash error: usbinfo: no USB devices found" << endl;
+        return;
+    }
+
+    sort(USBEntries.begin(), USBEntries.end(), [](const USBEntry& l, const USBEntry& r) {
+        return l.devnum < r.devnum;
+    });
+    for(const USBEntry& usb : USBEntries){
+        cout << "Device " << usb.devnum << ": ID " << usb.vendorID << ":" << usb.productID << " " << usb.manufacturer << " " << usb.productName << " MaxPower: " << usb.maxPower << endl;
     }
 }
