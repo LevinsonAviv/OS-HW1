@@ -19,6 +19,12 @@ using namespace std;
 extern char **__environ;
 
 const std::string WHITESPACE = " \n\r\t\f\v";
+const int SMALL_BUFF_SIZE = 256;
+const int LARGE_BUFF_SIZE = 4096;
+const int PASSWD_USERNAME_INDEX = 0;
+const int PASSWD_UID_INDEX = 2;
+const int PASSWD_GID_INDEX = 3;
+const int PASSWD_HOMEDIR_INDEX = 5;
 
 const vector<string> AliasesList::reservedKeywords = {
     "chprompt", "showpid", "pwd", "cd", "jobs", "fg", "quit", "kill", "alias", "unalias", "unsetenv", "sysinfo", "du", "whoami", "usbinfo"
@@ -119,7 +125,7 @@ string _readFileToString(const string& path, bool printErrors){
         return "";
     }
     string res = "";
-    char buff[256];
+    char buff[SMALL_BUFF_SIZE];
     ssize_t bytesRead;
     while((bytesRead = read(fd, buff, sizeof(buff))) > 0){
         res.append(buff, bytesRead);
@@ -180,7 +186,7 @@ void SimpleExternalCommand::execute() {
 
 ComplexExternalCommand::ComplexExternalCommand(const char *cmd_line) : ExternalCommand(cmd_line) {}
 
-void ComplexExternalCommand::execute() { // check casting
+void ComplexExternalCommand::execute() {
     string aliasCommandLine = _copyWithoutBackgroundSign(getAliasCmdLine());
     char *args[4];
     args[0] = (char*)"/bin/bash";
@@ -403,9 +409,9 @@ void UnSetEnvCommand::execute(){
     }
     vector<string> environVars;
     string currentVar = "";
-    char buff[4096];
+    char buff[LARGE_BUFF_SIZE];
     ssize_t bytesRead;
-    while((bytesRead = read(fd, buff, 4096)) > 0){ // check the last one if not ending with \0
+    while((bytesRead = read(fd, buff, sizeof(buff))) > 0){
         for(int byte = 0; byte < bytesRead; byte++){
             if(buff[byte] == '\0'){
                 environVars.push_back(currentVar.substr(0, currentVar.find_first_of("=")));
@@ -428,7 +434,7 @@ void UnSetEnvCommand::execute(){
                 for(int i = 0; environ[i] != nullptr; i++){
                     if(string(environ[i]).find(var + "=") == 0){
                         for(int j = i; environ[j] != nullptr; j++){
-                            environ[j] = environ[j+1];
+                            environ[j] = environ[j + 1];
                         }
                         break;
                     }
@@ -454,7 +460,7 @@ void SysInfoCommand::execute(){
     stream >> uptimeSec;
     time_t bootSec = time(NULL) - uptimeSec;
     const struct tm *bootSecTM = localtime(&bootSec);
-    char bootBuff[128];
+    char bootBuff[SMALL_BUFF_SIZE];
     strftime(bootBuff, sizeof(bootBuff), "%Y-%m-%d %H:%M:%S", bootSecTM);
     cout << "System: " << system << endl;
     cout << "Hostname: " << hostname << endl;
@@ -494,7 +500,7 @@ void JobsList::printJobsListByJid(){
     }
 }
 
-void JobsList::printJobsListByPid(){ // maybe removeFinishedJobs() before
+void JobsList::printJobsListByPid(){
     for(const JobEntry& job : list){
         cout << job.getJobPid() << ": " << job.getCmdLine() << endl;
     }
@@ -725,20 +731,20 @@ void RedirectionCommand::execute(){
         perror("smash error: open failed");
         return;
     }
-    int oldOutputFdCopy = dup(1);
+    int oldOutputFdCopy = dup(STDOUT_FILENO);
     if(oldOutputFdCopy == -1){
         perror("smash error: dup failed");
         close(newOutputFd);
         return;
     }
-    if(dup2(newOutputFd, 1) == -1){
+    if(dup2(newOutputFd, STDOUT_FILENO) == -1){
         perror("smash error: dup2 failed");
         close(newOutputFd);
         close(oldOutputFdCopy);
         return;
     }
     SmallShell::getInstance().executeCommand(inputCommand.c_str());
-    if(dup2(oldOutputFdCopy, 1) == -1){
+    if(dup2(oldOutputFdCopy, STDOUT_FILENO) == -1){
         perror("smash error: dup2 failed");
         close(newOutputFd);
         close(oldOutputFdCopy);
@@ -791,7 +797,7 @@ void PipeCommand::execute(){
                 perror("smash error: setpgrp failed");
                 exit(1);
             }
-        if(dup2(fd[1], (isErrPipe ? 2 : 1)) == -1){
+        if(dup2(fd[1], (isErrPipe ? STDERR_FILENO : STDOUT_FILENO)) == -1){
             perror("smash error: dup2 failed");
             exit(1);
         }
@@ -818,7 +824,7 @@ void PipeCommand::execute(){
                 perror("smash error: setpgrp failed");
                 exit(1);
             }
-        if(dup2(fd[0], 0) == -1){
+        if(dup2(fd[0], STDIN_FILENO) == -1){
             perror("smash error: dup2 failed");
             exit(1);
         }
@@ -893,16 +899,15 @@ bool WhoAmICommand::isBackgroundable() const {
 
 void WhoAmICommand::execute(){
     string uid = to_string(getuid());
-    string gid = to_string(getgid());
     int fd = open("/etc/passwd", O_RDONLY);
     if(fd == -1){
         perror("smash error: open failed");
         return;
     }
     string currentUser = "";
-    char buff[4096];
+    char buff[LARGE_BUFF_SIZE];
     ssize_t bytesRead;
-    while((bytesRead = read(fd, buff, 4096)) > 0){ // check the last one if not ending with \n
+    while((bytesRead = read(fd, buff, sizeof(buff))) > 0){
         for(int byte = 0; byte < bytesRead; byte++){
             if(buff[byte] == '\n'){
                 istringstream stream(currentUser);
@@ -912,11 +917,11 @@ void WhoAmICommand::execute(){
                     userFields.push_back(token);
                 }
                 if(userFields.size() >= 6){
-                    if(userFields[2] == uid){
-                        cout << userFields[0] << endl;
+                    if(userFields[PASSWD_UID_INDEX] == uid){
+                        cout << userFields[PASSWD_USERNAME_INDEX] << endl;
                         cout << uid << endl;
-                        cout << gid << endl;
-                        cout << userFields[5] << endl;
+                        cout << userFields[PASSWD_GID_INDEX] << endl;
+                        cout << userFields[PASSWD_HOMEDIR_INDEX] << endl;
                         if(close(fd) == -1){
                             perror("smash error: close failed");
                             return;
@@ -949,10 +954,10 @@ void USBInfoCommand::execute(){
         perror("smash error: open failed");
         return;
     }
-    char buff[4096];
+    char buff[LARGE_BUFF_SIZE];
     int bytesRead;
     vector<USBEntry> USBEntries;
-    while((bytesRead = syscall(SYS_getdents64, fd, buff, 4096)) > 0){
+    while((bytesRead = syscall(SYS_getdents64, fd, buff, sizeof(buff))) > 0){
         int bytePos = 0;
         while(bytePos < bytesRead){
             try{
@@ -968,7 +973,7 @@ void USBInfoCommand::execute(){
                     continue;
                 }
 
-                int devnum = stoi(devnumS); // try
+                int devnum = stoi(devnumS);
                 string vendorIDPath = usbDirPath + dirName + "/idVendor";
                 string productIDPath = usbDirPath + dirName + "/idProduct";
                 string manufacturerPath = usbDirPath + dirName + "/manufacturer";
@@ -978,7 +983,7 @@ void USBInfoCommand::execute(){
                 string vendorID = _rtrim(_readFileToString(vendorIDPath, false));
                 string productID = _rtrim(_readFileToString(productIDPath, false));
                 string manufacturer = _rtrim(_readFileToString(manufacturerPath, false));
-                string productName = _rtrim(_readFileToString(productNamePath, false)); // should be this or the file name
+                string productName = _rtrim(_readFileToString(productNamePath, false));
                 string maxPower = _rtrim(_readFileToString(maxPowerPath, false));
 
                 if(vendorID.empty()){

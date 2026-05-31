@@ -6,7 +6,7 @@
 
 using namespace std;
 
-void ctrlCHandler(int sig_num) { // not async safe
+void ctrlCHandler(int sig_num) {
     pid_t foregroundPid = SmallShell::getInstance().getForegroundPid();
     if(foregroundPid == -1){
         return;
