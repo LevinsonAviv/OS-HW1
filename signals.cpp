@@ -13,7 +13,7 @@ void ctrlCHandler(int sig_num) {
     }
     string signalMsg = "smash: got ctrl-C\n";
     write(STDOUT_FILENO, signalMsg.c_str(), signalMsg.length());
-    string killMsg = "process " + to_string(foregroundPid) + " was killed\n";
+    string killMsg = "smash: process " + to_string(foregroundPid) + " was killed\n";
     write(STDOUT_FILENO, killMsg.c_str(), killMsg.length());
     kill(foregroundPid, SIGKILL);
     SmallShell::getInstance().setForegroundPid(-1);
